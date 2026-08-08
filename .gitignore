@@ -1,0 +1,8 @@
+.env
+*.pem
+*.pub
+*.key
+*.zip
+stok_log.txt
+__pycache__/
+*.log
