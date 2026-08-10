@@ -11,6 +11,7 @@ with open("stok_log.txt", "w", encoding="utf-8") as f:
     f.write("")
 
 def custom_print(*args, **kwargs):
+    kwargs['flush'] = True
     builtins.print(*args, **kwargs)
     with open("stok_log.txt", "a", encoding="utf-8") as f:
         builtins.print(*args, **kwargs, file=f)
