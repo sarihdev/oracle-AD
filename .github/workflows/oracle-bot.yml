@@ -30,6 +30,7 @@ jobs:
 
       - name: Botu Çalıştır
         env:
+          PYTHONUNBUFFERED: "1"
           OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
           OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
           OCI_KEY_FILE: /home/runner/.oci/oci_api_key.pem
