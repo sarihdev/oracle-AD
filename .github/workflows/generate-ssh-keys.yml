@@ -84,7 +84,7 @@ jobs:
       
       - name: Keys'i artifact olarak kaydet
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ssh-keys-${{ github.run_number }}
           path: ~/.ssh/${{ steps.encode_private_key.outputs.private_key_file }}*

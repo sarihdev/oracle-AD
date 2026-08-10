@@ -65,7 +65,7 @@ jobs:
       
       - name: Log dosyasını yükle (artifact olarak)
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: stok_log
           path: stok_log.txt
