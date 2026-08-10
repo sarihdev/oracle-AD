@@ -1,0 +1,102 @@
+name: SSH Anahtarları Oluştur
+
+on:
+  workflow_dispatch:
+    inputs:
+      key_name:
+        description: 'Anahtar ismi (örn: oracle-vm)'
+        required: false
+        default: 'oracle-vm'
+      save_to_secrets:
+        description: 'Private keyi GitHub Secrets''a kaydet?'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+jobs:
+  generate-ssh-keys:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Repository'yi klonla
+        uses: actions/checkout@v4
+      
+      - name: SSH klasörü oluştur
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+      
+      - name: SSH Key Pair oluştur (PEM formatı)
+        run: |
+          KEY_NAME="${{ github.event.inputs.key_name }}"
+          # PEM formatında private key oluştur (RSA 4096-bit)
+          ssh-keygen -t rsa -b 4096 \
+            -f ~/.ssh/${KEY_NAME} \
+            -N "" \
+            -C "github-actions-${{ github.run_id }}" \
+            -m pem
+          
+          # Dosyaları göster
+          echo "✅ Private Key oluşturuldu:"
+          ls -lh ~/.ssh/${KEY_NAME}
+          echo ""
+          echo "✅ Public Key oluşturuldu:"
+          ls -lh ~/.ssh/${KEY_NAME}.pub
+      
+      - name: Public Key'i göster
+        run: |
+          KEY_NAME="${{ github.event.inputs.key_name }}"
+          echo "📄 PUBLIC KEY (VM'ye ekleyeceksiniz):"
+          echo "=================================================="
+          cat ~/.ssh/${KEY_NAME}.pub
+          echo "=================================================="
+      
+      - name: Private Key'i Base64 encode et
+        id: encode_private_key
+        run: |
+          KEY_NAME="${{ github.event.inputs.key_name }}"
+          PRIVATE_KEY_BASE64=$(cat ~/.ssh/${KEY_NAME} | base64 -w 0)
+          echo "private_key_base64=${PRIVATE_KEY_BASE64}" >> $GITHUB_OUTPUT
+          echo "private_key_file=${KEY_NAME}" >> $GITHUB_OUTPUT
+      
+      - name: GitHub Secrets'a Private Key'i kaydet
+        if: github.event.inputs.save_to_secrets == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KEY_BASE64: ${{ steps.encode_private_key.outputs.private_key_base64 }}
+          KEY_NAME: ${{ steps.encode_private_key.outputs.private_key_file }}
+        run: |
+          # Secret adını oluştur (ORACLE_SSH_PRIVATE_KEY_BASE64 veya benzer)
+          SECRET_NAME="ORACLE_SSH_PRIVATE_KEY_BASE64"
+          
+          echo "🔐 Secret '$SECRET_NAME' GitHub Secrets'a kaydediliyor..."
+          
+          # GitHub CLI ile secret'ı kaydet
+          gh secret set ${SECRET_NAME} \
+            --body "${KEY_BASE64}" \
+            --repo "${{ github.repository }}"
+          
+          echo "✅ Secret başarıyla kaydedildi!"
+          echo "   Secret Adı: ${SECRET_NAME}"
+      
+      - name: Keys'i artifact olarak kaydet
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: ssh-keys-${{ github.run_number }}
+          path: ~/.ssh/${{ steps.encode_private_key.outputs.private_key_file }}*
+          retention-days: 7
+      
+      - name: Özet
+        run: |
+          echo "🎉 SSH Anahtarları başarıyla oluşturuldu!"
+          echo ""
+          echo "📋 Sonraki Adımlar:"
+          echo "1️⃣  Public Key'i Oracle VM'sine ekleyin (SSH_PUBLIC_KEY)"
+          echo "2️⃣  Private Key'i güvenli bir yerde saklayın"
+          echo "3️⃣  Oracle scripti ile VM oluşturmak için oracle-auto-create.yml çalıştırın"
+          echo ""
+          echo "⚠️  DİKKAT: Private key'i kimseyle paylaşmayın!"
