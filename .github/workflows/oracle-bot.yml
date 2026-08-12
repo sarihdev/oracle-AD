@@ -5,6 +5,10 @@ on:
   schedule:
     - cron: "0 */6 * * *" # Her 6 saatte bir otomatik başlar (Github action limiti 6 saat)
 
+concurrency:
+  group: oracle-bot
+  cancel-in-progress: false
+
 jobs:
   run-bot:
     runs-on: ubuntu-latest
@@ -35,9 +39,21 @@ jobs:
           OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
           OCI_KEY_FILE: /home/runner/.oci/oci_api_key.pem
           OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
-          OCI_REGION: ${{ secrets.OCI_REGION }}
+          OCI_REGION: ${{ vars.OCI_REGION || 'eu-frankfurt-1' }}
+          OCI_AVAILABILITY_DOMAINS: ${{ vars.OCI_AVAILABILITY_DOMAINS }}
+          OCI_OCPUS: ${{ vars.OCI_OCPUS || '4' }}
+          OCI_MEMORY_IN_GBS: ${{ vars.OCI_MEMORY_IN_GBS || '24' }}
           OCI_COMPARTMENT_OCID: ${{ secrets.OCI_COMPARTMENT_OCID }}
           OCI_IMAGE_ID: ${{ secrets.OCI_IMAGE_ID }}
           OCI_SUBNET_ID: ${{ secrets.OCI_SUBNET_ID }}
           SSH_PUBLIC_KEY: ${{ secrets.SSH_PUBLIC_KEY }}
         run: python oracle_auto_create.py
+
+      - name: Logu Artifact Olarak Yükle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stok-log-${{ github.run_number }}
+          path: stok_log.txt
+          if-no-files-found: warn
+          retention-days: 14
