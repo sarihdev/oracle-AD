@@ -44,7 +44,9 @@ python oracle_auto_create.py
 
 - `OCI_AVAILABILITY_DOMAINS`: Virgülle ayrılmış AD listesi. Boş bırakılırsa AD'ler OCI API'sinden otomatik çekilir (tenancy'ye özgü `xxxx:EU-FRANKFURT-1-AD-1` önekini elle yazmak gerekmez).
 - `OCI_SHAPE`, `OCI_OCPUS`, `OCI_MEMORY_IN_GBS`, `OCI_BOOT_VOLUME_SIZE_IN_GBS`: Donanım konfigürasyonu. Kapasite bulunamıyorsa daha küçük değerler (örn. 1 OCPU / 6 GB) şansı artırır.
-- `OCI_SHAPE_LADDER`: Sırayla denenecek `ocpu/bellek` listesi, örn. `4/24,2/12,1/6`. Tam 4 OCPU / 24 GB'lık blok nadiren boşalır; küçük parçalar çok daha sık bulunur ve Always Free kotası (toplam 4 OCPU / 24 GB) birden fazla küçük instance ile de doldurulabilir. Boş bırakılırsa yalnızca `OCI_OCPUS`/`OCI_MEMORY_IN_GBS` denenir.
+- `OCI_SHAPE_LADDER`: Sırayla denenecek `ocpu/bellek` listesi, örn. `4/24,2/12,1/6`. Tam 4 OCPU / 24 GB'lık blok nadiren boşalır; küçük parçalar çok daha sık bulunur. Bir konfigürasyon hesabın kotasını aşarsa (`LimitExceeded`) o kademe listeden düşürülür ve daha küçükleri denenmeye devam edilir. Boş bırakılırsa yalnızca `OCI_OCPUS`/`OCI_MEMORY_IN_GBS` denenir.
+
+  Kota: ücretsiz tenancy'lerde A1 için aylık 1.500 OCPU-saat + 9.000 GB-saat, yani kesintisiz **2 OCPU / 12 GB**; Pay As You Go tenancy'lerde 3.000 OCPU-saat + 18.000 GB-saat, yani kesintisiz **4 OCPU / 24 GB** ücretsizdir.
 - `USE_CAPACITY_REPORT` (varsayılan `true`): Her AD için önce `CreateComputeCapacityReport` çağrılır ve yalnızca `AVAILABLE` raporlanan konfigürasyon için `LaunchInstance` denenir. Rapor alınamazsa (yetki yoksa) otomatik olarak körlemesine denemeye düşer.
 - `AD_SLEEP_SECONDS`, `CYCLE_SLEEP_SECONDS`: AD'ler arası ve turlar arası bekleme.
 - `MAX_CYCLES`: Tur sınırı; `0` sınırsız demektir.
