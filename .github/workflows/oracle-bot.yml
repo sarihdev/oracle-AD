@@ -2,6 +2,11 @@ name: Oracle OCI Auto Create
 
 on:
   workflow_dispatch: # Manuel tetikleme için
+    inputs:
+      max_cycles:
+        description: 'Tur limiti (0 = sınırsız). Test için 1 verebilirsiniz.'
+        required: false
+        default: '0'
   schedule:
     - cron: "0 */6 * * *" # Her 6 saatte bir otomatik başlar (Github action limiti 6 saat)
 
@@ -35,6 +40,7 @@ jobs:
       - name: Botu Çalıştır
         env:
           PYTHONUNBUFFERED: "1"
+          MAX_CYCLES: ${{ inputs.max_cycles || '0' }}
           OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
           OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
           OCI_KEY_FILE: /home/runner/.oci/oci_api_key.pem
