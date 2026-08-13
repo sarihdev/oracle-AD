@@ -41,10 +41,10 @@ FATAL_CODES = {
     "NotAuthorized",
     "NotAuthorizedOrNotFound",
     "InvalidParameter",
-    "LimitExceeded",
-    "QuotaExceeded",
     "CannotParseRequest",
 }
+# Kota aşımı: bu konfigürasyon hesaba sığmıyor, ama daha küçüğü sığabilir
+QUOTA_CODES = {"LimitExceeded", "QuotaExceeded"}
 
 SHAPE = os.getenv("OCI_SHAPE", "VM.Standard.A1.Flex")
 TARGET_STATES = {"PROVISIONING", "STARTING", "RUNNING", "STOPPING", "STOPPED"}
@@ -302,6 +302,21 @@ def main():
                             exc.message,
                         )
                         return 1
+                    if exc.code in QUOTA_CODES:
+                        ladder = [c for c in ladder if c != (ocpus, memory)]
+                        log.warning(
+                            "  └─ %dc/%dg hesabın kotasını aşıyor (%s), bu konfigürasyon "
+                            "artık denenmeyecek.",
+                            ocpus,
+                            memory,
+                            exc.code,
+                        )
+                        if not ladder:
+                            log.error(
+                                "Kotaya sığan konfigürasyon kalmadı: %s", exc.message
+                            )
+                            return 1
+                        continue
                     if exc.code in CAPACITY_CODES or "capacity" in exc.message.lower():
                         log.info(
                             "  └─ Kapasite yok (%s, %dc/%dg).",
