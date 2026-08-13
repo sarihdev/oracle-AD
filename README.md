@@ -44,6 +44,8 @@ python oracle_auto_create.py
 
 - `OCI_AVAILABILITY_DOMAINS`: Virgülle ayrılmış AD listesi. Boş bırakılırsa AD'ler OCI API'sinden otomatik çekilir (tenancy'ye özgü `xxxx:EU-FRANKFURT-1-AD-1` önekini elle yazmak gerekmez).
 - `OCI_SHAPE`, `OCI_OCPUS`, `OCI_MEMORY_IN_GBS`, `OCI_BOOT_VOLUME_SIZE_IN_GBS`: Donanım konfigürasyonu. Kapasite bulunamıyorsa daha küçük değerler (örn. 1 OCPU / 6 GB) şansı artırır.
+- `OCI_SHAPE_LADDER`: Sırayla denenecek `ocpu/bellek` listesi, örn. `4/24,2/12,1/6`. Tam 4 OCPU / 24 GB'lık blok nadiren boşalır; küçük parçalar çok daha sık bulunur ve Always Free kotası (toplam 4 OCPU / 24 GB) birden fazla küçük instance ile de doldurulabilir. Boş bırakılırsa yalnızca `OCI_OCPUS`/`OCI_MEMORY_IN_GBS` denenir.
+- `USE_CAPACITY_REPORT` (varsayılan `true`): Her AD için önce `CreateComputeCapacityReport` çağrılır ve yalnızca `AVAILABLE` raporlanan konfigürasyon için `LaunchInstance` denenir. Rapor alınamazsa (yetki yoksa) otomatik olarak körlemesine denemeye düşer.
 - `AD_SLEEP_SECONDS`, `CYCLE_SLEEP_SECONDS`: AD'ler arası ve turlar arası bekleme.
 - `MAX_CYCLES`: Tur sınırı; `0` sınırsız demektir.
 
@@ -53,10 +55,13 @@ python oracle_auto_create.py
 
 Gerekli repository **secret**'ları: `OCI_USER_OCID`, `OCI_FINGERPRINT`, `OCI_TENANCY_OCID`, `OCI_COMPARTMENT_OCID`, `OCI_IMAGE_ID`, `OCI_SUBNET_ID`, `SSH_PUBLIC_KEY`, `OCI_KEY_FILE_BASE64` (PEM dosyasının base64 hâli: `base64 -w 0 key.pem`).
 
-Gizli olmayan ayarlar repository **variables** olarak verilir: `OCI_REGION`, `OCI_AVAILABILITY_DOMAINS`, `OCI_OCPUS`, `OCI_MEMORY_IN_GBS`.
+Gizli olmayan ayarlar repository **variables** olarak verilir: `OCI_REGION`, `OCI_AVAILABILITY_DOMAINS`, `OCI_OCPUS`, `OCI_MEMORY_IN_GBS`, `OCI_SHAPE_LADDER`, `USE_CAPACITY_REPORT`.
+
+Manuel tetiklemede `max_cycles` girdisi verilebilir (`1` = tek tur; test için pratiktir).
 
 Notlar:
 
+- Actions dakikası: bot sürekli çalıştığı için private repoda aylık ücretsiz dakika kotası hızla tükenir (public repolarda Actions ücretsizdir). Kotayı uzatmak için `CYCLE_SLEEP_SECONDS`'ı artırmak yerine daha sık ama kısa koşular (örn. `MAX_CYCLES=3` ile 15 dakikada bir cron) tercih edilebilir.
 - Workflow'da `concurrency` grubu vardır; zamanlanmış ve manuel koşular aynı anda çalışıp iki sunucu açmaz. Script de başlangıçta aynı shape'te mevcut bir instance olup olmadığını kontrol eder, varsa hiç deneme yapmadan çıkar.
 - `stok_log.txt` her koşunun sonunda artifact olarak yüklenir (14 gün).
 - GitHub, 60 gün boyunca commit atılmayan repolarda zamanlanmış workflow'ları devre dışı bırakır; botun çalışmaya devam etmesi için repoyu ara ara güncellemeniz gerekir.

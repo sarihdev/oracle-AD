@@ -1,5 +1,6 @@
 import logging
 import os
+import random
 import sys
 import time
 
@@ -47,6 +48,7 @@ FATAL_CODES = {
 
 SHAPE = os.getenv("OCI_SHAPE", "VM.Standard.A1.Flex")
 TARGET_STATES = {"PROVISIONING", "STARTING", "RUNNING", "STOPPING", "STOPPED"}
+AVAILABLE = oci.core.models.CapacityReportShapeAvailability.AVAILABILITY_STATUS_AVAILABLE
 
 
 def getenv_str(name, default=None):
@@ -55,6 +57,21 @@ def getenv_str(name, default=None):
     if value is None or not value.strip():
         return default
     return value.strip()
+
+
+def jittered(seconds):
+    """Herkesin tam dakika başında denemesini önlemek için ±%25 sapma."""
+    return max(1, int(seconds * random.uniform(0.75, 1.25)))
+
+
+def parse_retry_after(exc):
+    """429 yanıtındaki Retry-After başlığını saniye olarak döner (yoksa 0)."""
+    headers = getattr(exc, "headers", None) or {}
+    value = headers.get("retry-after") or headers.get("Retry-After")
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
 
 
 def build_config():
@@ -108,10 +125,59 @@ def find_existing_instance(compute_client, compartment_id):
     return None
 
 
-def build_launch_details(compartment_id, availability_domain):
+def resolve_shape_ladder():
+    """Denenecek (ocpu, bellek) kombinasyonları; büyükten küçüğe.
+
+    Tam 4 OCPU / 24 GB'lık blok nadiren boşalır, küçük parçalar çok daha sık
+    bulunur. `OCI_SHAPE_LADDER` ile örn. "4/24,1/6" verilebilir.
+    """
+    ladder = getenv_str("OCI_SHAPE_LADDER")
+    if not ladder:
+        ocpus = float(os.getenv("OCI_OCPUS", "4"))
+        memory = float(os.getenv("OCI_MEMORY_IN_GBS", "24"))
+        return [(ocpus, memory)]
+
+    combos = []
+    for item in ladder.split(","):
+        ocpus, _, memory = item.strip().partition("/")
+        combos.append((float(ocpus), float(memory)))
+    return combos
+
+
+def available_shape_configs(compute_client, compartment_id, availability_domain, ladder):
+    """Kapasite raporuyla, denemeye değer (ocpu, bellek) kombinasyonlarını döner.
+
+    Rapor API'si instance oluşturmaz; launch denemelerini yalnızca kapasitenin
+    raporlandığı yerde yapmak rate limit tüketimini azaltır. Rapor alınamazsa
+    (yetki/desteklenmiyor) `None` dönülür ve klasik körlemesine deneme yapılır.
+    """
+    details = oci.core.models.CreateComputeCapacityReportDetails(
+        compartment_id=compartment_id,
+        availability_domain=availability_domain,
+        shape_availabilities=[
+            oci.core.models.CreateCapacityReportShapeAvailabilityDetails(
+                instance_shape=SHAPE,
+                instance_shape_config=oci.core.models.CapacityReportInstanceShapeConfig(
+                    ocpus=ocpus, memory_in_gbs=memory
+                ),
+            )
+            for ocpus, memory in ladder
+        ],
+    )
+    report = compute_client.create_compute_capacity_report(details).data
+    available = []
+    for entry in report.shape_availabilities:
+        if entry.availability_status != AVAILABLE:
+            continue
+        shape_config = entry.instance_shape_config
+        available.append((shape_config.ocpus, shape_config.memory_in_gbs))
+    return available
+
+
+def build_launch_details(compartment_id, availability_domain, ocpus, memory_in_gbs):
     shape_config = oci.core.models.LaunchInstanceShapeConfigDetails(
-        ocpus=float(os.getenv("OCI_OCPUS", "4")),
-        memory_in_gbs=float(os.getenv("OCI_MEMORY_IN_GBS", "24")),
+        ocpus=ocpus,
+        memory_in_gbs=memory_in_gbs,
     )
     boot_volume_size = getenv_str("OCI_BOOT_VOLUME_SIZE_IN_GBS")
     source_details = oci.core.models.InstanceSourceViaImageDetails(
@@ -120,7 +186,7 @@ def build_launch_details(compartment_id, availability_domain):
     )
     return oci.core.models.LaunchInstanceDetails(
         compartment_id=compartment_id,
-        display_name=f"Ampere-Ubuntu-{availability_domain[-4:]}",
+        display_name=f"Ampere-Ubuntu-{availability_domain[-4:]}-{int(ocpus)}c",
         availability_domain=availability_domain,
         shape=SHAPE,
         shape_config=shape_config,
@@ -165,17 +231,20 @@ def main():
         )
         return 0
 
+    ladder = resolve_shape_ladder()
+    use_report = os.getenv("USE_CAPACITY_REPORT", "true").lower() != "false"
     log.info(
-        "Stok takibi başladı. Shape: %s, AD sayısı: %d",
+        "Stok takibi başladı. Shape: %s, AD sayısı: %d, denenecek konfigürasyonlar: %s",
         SHAPE,
         len(availability_domains),
+        ", ".join(f"{int(o)}c/{int(m)}g" for o, m in ladder),
     )
 
     cycle = 0
     backoff = cycle_sleep
     while max_cycles == 0 or cycle < max_cycles:
         cycle += 1
-        rate_limited = False
+        retry_after = None
 
         for index, availability_domain in enumerate(availability_domains, start=1):
             log.info(
@@ -185,47 +254,91 @@ def main():
                 len(availability_domains),
                 availability_domain,
             )
-            try:
-                response = compute_client.launch_instance(
-                    build_launch_details(compartment_id, availability_domain)
-                )
-            except oci.exceptions.ServiceError as exc:
-                if exc.status == 429 or exc.code == "TooManyRequests":
-                    log.warning("Rate limit (429). Backoff uygulanacak.")
-                    rate_limited = True
-                    break
-                if exc.code in FATAL_CODES:
-                    log.error(
-                        "Düzeltilmesi gereken hata (%s / %s): %s",
-                        exc.status,
-                        exc.code,
-                        exc.message,
-                    )
-                    return 1
-                if exc.code in CAPACITY_CODES or "capacity" in exc.message.lower():
-                    log.info("  └─ Kapasite yok (%s).", availability_domain)
-                else:
-                    log.warning(
-                        "  └─ Beklenmeyen hata (%s / %s): %s",
-                        exc.status,
-                        exc.code,
-                        exc.message,
-                    )
-            else:
-                log.info("Sunucu oluşturuldu! Instance ID: %s", response.data.id)
-                log.info("Bölge: %s", availability_domain)
-                return 0
 
+            candidates = ladder
+            if use_report:
+                try:
+                    candidates = available_shape_configs(
+                        compute_client, compartment_id, availability_domain, ladder
+                    )
+                except oci.exceptions.ServiceError as exc:
+                    if exc.status == 429 or exc.code == "TooManyRequests":
+                        retry_after = parse_retry_after(exc)
+                        break
+                    log.warning(
+                        "Kapasite raporu alınamadı (%s / %s), körlemesine denenecek: %s",
+                        exc.status,
+                        exc.code,
+                        exc.message,
+                    )
+                    use_report = False
+                    candidates = ladder
+                else:
+                    if not candidates:
+                        log.info("  └─ Kapasite yok (%s).", availability_domain)
+                        time.sleep(ad_sleep)
+                        continue
+                    log.info(
+                        "  └─ Rapora göre uygun: %s",
+                        ", ".join(f"{int(o)}c/{int(m)}g" for o, m in candidates),
+                    )
+
+            for ocpus, memory in candidates:
+                try:
+                    response = compute_client.launch_instance(
+                        build_launch_details(
+                            compartment_id, availability_domain, ocpus, memory
+                        )
+                    )
+                except oci.exceptions.ServiceError as exc:
+                    if exc.status == 429 or exc.code == "TooManyRequests":
+                        retry_after = parse_retry_after(exc)
+                        break
+                    if exc.code in FATAL_CODES:
+                        log.error(
+                            "Düzeltilmesi gereken hata (%s / %s): %s",
+                            exc.status,
+                            exc.code,
+                            exc.message,
+                        )
+                        return 1
+                    if exc.code in CAPACITY_CODES or "capacity" in exc.message.lower():
+                        log.info(
+                            "  └─ Kapasite yok (%s, %dc/%dg).",
+                            availability_domain,
+                            ocpus,
+                            memory,
+                        )
+                    else:
+                        log.warning(
+                            "  └─ Beklenmeyen hata (%s / %s): %s",
+                            exc.status,
+                            exc.code,
+                            exc.message,
+                        )
+                else:
+                    log.info("Sunucu oluşturuldu! Instance ID: %s", response.data.id)
+                    log.info(
+                        "Bölge: %s, konfigürasyon: %dc/%dg",
+                        availability_domain,
+                        ocpus,
+                        memory,
+                    )
+                    return 0
+
+            if retry_after is not None:
+                break
             time.sleep(ad_sleep)
 
-        if rate_limited:
-            backoff = min(backoff * 2, 900)
-            log.info("Rate limit nedeniyle %d saniye bekleniyor...", backoff)
+        if retry_after is not None:
+            backoff = max(retry_after, min(backoff * 2, 900))
+            log.warning("Rate limit (429). %d saniye bekleniyor...", backoff)
             time.sleep(backoff)
         else:
             backoff = cycle_sleep
-            log.info("Tüm AD'ler dolu. %d saniye sonra tekrar denenecek.", cycle_sleep)
-            time.sleep(cycle_sleep)
+            wait = jittered(cycle_sleep)
+            log.info("Tüm AD'ler dolu. %d saniye sonra tekrar denenecek.", wait)
+            time.sleep(wait)
 
     log.info("MAX_CYCLES (%d) sınırına ulaşıldı, kapasite bulunamadı.", max_cycles)
     return 2
