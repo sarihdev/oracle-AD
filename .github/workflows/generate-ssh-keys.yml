@@ -8,7 +8,7 @@ on:
         required: false
         default: 'oracle-vm'
       save_to_secrets:
-        description: 'Private keyi GitHub Secrets''a kaydet?'
+        description: 'Private keyi GitHub Secrets''a kaydet? (GH_PAT secret''i gerekir)'
         required: false
         default: 'true'
         type: choice
@@ -19,11 +19,10 @@ on:
 jobs:
   generate-ssh-keys:
     runs-on: ubuntu-latest
-    
+    permissions:
+      contents: read
+
     steps:
-      - name: Repository'yi klonla
-        uses: actions/checkout@v4
-      
       - name: SSH klasörü oluştur
         run: |
           mkdir -p ~/.ssh
@@ -54,49 +53,35 @@ jobs:
           cat ~/.ssh/${KEY_NAME}.pub
           echo "=================================================="
       
-      - name: Private Key'i Base64 encode et
-        id: encode_private_key
-        run: |
-          KEY_NAME="${{ github.event.inputs.key_name }}"
-          PRIVATE_KEY_BASE64=$(cat ~/.ssh/${KEY_NAME} | base64 -w 0)
-          echo "private_key_base64=${PRIVATE_KEY_BASE64}" >> $GITHUB_OUTPUT
-          echo "private_key_file=${KEY_NAME}" >> $GITHUB_OUTPUT
-      
       - name: GitHub Secrets'a Private Key'i kaydet
         if: github.event.inputs.save_to_secrets == 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          KEY_BASE64: ${{ steps.encode_private_key.outputs.private_key_base64 }}
-          KEY_NAME: ${{ steps.encode_private_key.outputs.private_key_file }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          KEY_NAME: ${{ github.event.inputs.key_name }}
         run: |
-          # Secret adını oluştur (ORACLE_SSH_PRIVATE_KEY_BASE64 veya benzer)
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "::error::GH_PAT secret'i tanımlı değil. Varsayılan GITHUB_TOKEN Actions secret'i yazamaz;"
+            echo "::error::'secrets: write' yetkisi olan bir fine-grained PAT'i GH_PAT olarak ekleyin."
+            exit 1
+          fi
           SECRET_NAME="ORACLE_SSH_PRIVATE_KEY_BASE64"
-          
-          echo "🔐 Secret '$SECRET_NAME' GitHub Secrets'a kaydediliyor..."
-          
-          # GitHub CLI ile secret'ı kaydet
-          gh secret set ${SECRET_NAME} \
-            --body "${KEY_BASE64}" \
+          base64 -w 0 ~/.ssh/${KEY_NAME} | gh secret set ${SECRET_NAME} \
             --repo "${{ github.repository }}"
-          
-          echo "✅ Secret başarıyla kaydedildi!"
-          echo "   Secret Adı: ${SECRET_NAME}"
-      
-      - name: Keys'i artifact olarak kaydet
+          echo "Secret kaydedildi: ${SECRET_NAME}"
+
+      - name: Public Key'i artifact olarak kaydet
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ssh-keys-${{ github.run_number }}
-          path: ~/.ssh/${{ steps.encode_private_key.outputs.private_key_file }}*
+          name: ssh-public-key-${{ github.run_number }}
+          path: ~/.ssh/${{ github.event.inputs.key_name }}.pub
           retention-days: 7
-      
+
       - name: Özet
         run: |
-          echo "🎉 SSH Anahtarları başarıyla oluşturuldu!"
-          echo ""
-          echo "📋 Sonraki Adımlar:"
-          echo "1️⃣  Public Key'i Oracle VM'sine ekleyin (SSH_PUBLIC_KEY)"
-          echo "2️⃣  Private Key'i güvenli bir yerde saklayın"
-          echo "3️⃣  Oracle scripti ile VM oluşturmak için oracle-auto-create.yml çalıştırın"
-          echo ""
-          echo "⚠️  DİKKAT: Private key'i kimseyle paylaşmayın!"
+          echo "SSH anahtar çifti oluşturuldu."
+          echo "1. Public key'i SSH_PUBLIC_KEY secret'i olarak ekleyin (yukarıdaki loga basıldı)."
+          echo "2. Private key SADECE GH_PAT verildiyse ORACLE_SSH_PRIVATE_KEY_BASE64 secret'ine yazıldı;"
+          echo "   artifact olarak yüklenmez. Aksi halde bu koşudan private key'i alamazsınız,"
+          echo "   anahtarı lokalde 'ssh-keygen' ile üretmeniz önerilir."
+          echo "3. VM oluşturmak için oracle-bot.yml workflow'unu çalıştırın."
