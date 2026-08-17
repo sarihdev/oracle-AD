@@ -233,6 +233,7 @@ def main():
 
     ladder = resolve_shape_ladder()
     use_report = os.getenv("USE_CAPACITY_REPORT", "true").lower() != "false"
+    blind_every = int(os.getenv("BLIND_ATTEMPT_EVERY", "5"))
     log.info(
         "Stok takibi başladı. Shape: %s, AD sayısı: %d, denenecek konfigürasyonlar: %s",
         SHAPE,
@@ -255,8 +256,11 @@ def main():
                 availability_domain,
             )
 
-            candidates = ladder
-            if use_report:
+            # Rapor "kapasite yok" derken gerçekte launch'ın başarılı olabildiği
+            # durumları kaçırmamak için her `blind_every` turda bir rapor atlanır.
+            blind_cycle = blind_every > 0 and cycle % blind_every == 0
+            candidates = list(reversed(ladder)) if blind_cycle else ladder
+            if use_report and not blind_cycle:
                 try:
                     candidates = available_shape_configs(
                         compute_client, compartment_id, availability_domain, ladder
@@ -282,6 +286,8 @@ def main():
                         "  └─ Rapora göre uygun: %s",
                         ", ".join(f"{int(o)}c/{int(m)}g" for o, m in candidates),
                     )
+            elif blind_cycle and use_report:
+                log.info("  └─ Rapor atlandı, doğrudan deneniyor (küçükten büyüğe).")
 
             for ocpus, memory in candidates:
                 try:
