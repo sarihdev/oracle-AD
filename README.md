@@ -48,6 +48,7 @@ python oracle_auto_create.py
 
   Kota: ücretsiz tenancy'lerde A1 için aylık 1.500 OCPU-saat + 9.000 GB-saat, yani kesintisiz **2 OCPU / 12 GB**; Pay As You Go tenancy'lerde 3.000 OCPU-saat + 18.000 GB-saat, yani kesintisiz **4 OCPU / 24 GB** ücretsizdir.
 - `USE_CAPACITY_REPORT` (varsayılan `true`): Her AD için önce `CreateComputeCapacityReport` çağrılır ve yalnızca `AVAILABLE` raporlanan konfigürasyon için `LaunchInstance` denenir. Rapor alınamazsa (yetki yoksa) otomatik olarak körlemesine denemeye düşer.
+- `BLIND_ATTEMPT_EVERY` (varsayılan `5`, `0` = kapalı): Kapasite raporu "kapasite yok" derken bile launch'ın başarılı olabildiği durumları kaçırmamak için her N. turda rapor atlanır ve konfigürasyonlar küçükten büyüğe doğrudan denenir.
 - `AD_SLEEP_SECONDS`, `CYCLE_SLEEP_SECONDS`: AD'ler arası ve turlar arası bekleme.
 - `MAX_CYCLES`: Tur sınırı; `0` sınırsız demektir.
 
@@ -57,7 +58,7 @@ python oracle_auto_create.py
 
 Gerekli repository **secret**'ları: `OCI_USER_OCID`, `OCI_FINGERPRINT`, `OCI_TENANCY_OCID`, `OCI_COMPARTMENT_OCID`, `OCI_IMAGE_ID`, `OCI_SUBNET_ID`, `SSH_PUBLIC_KEY`, `OCI_KEY_FILE_BASE64` (PEM dosyasının base64 hâli: `base64 -w 0 key.pem`).
 
-Gizli olmayan ayarlar repository **variables** olarak verilir: `OCI_REGION`, `OCI_AVAILABILITY_DOMAINS`, `OCI_OCPUS`, `OCI_MEMORY_IN_GBS`, `OCI_SHAPE_LADDER`, `USE_CAPACITY_REPORT`.
+Gizli olmayan ayarlar repository **variables** olarak verilir: `OCI_REGION`, `OCI_AVAILABILITY_DOMAINS`, `OCI_OCPUS`, `OCI_MEMORY_IN_GBS`, `OCI_SHAPE_LADDER`, `USE_CAPACITY_REPORT`, `BLIND_ATTEMPT_EVERY`, `CYCLE_SLEEP_SECONDS`.
 
 Manuel tetiklemede `max_cycles` girdisi verilebilir (`1` = tek tur; test için pratiktir).
 

@@ -51,6 +51,8 @@ jobs:
           OCI_MEMORY_IN_GBS: ${{ vars.OCI_MEMORY_IN_GBS || '24' }}
           OCI_SHAPE_LADDER: ${{ vars.OCI_SHAPE_LADDER }}
           USE_CAPACITY_REPORT: ${{ vars.USE_CAPACITY_REPORT || 'true' }}
+          BLIND_ATTEMPT_EVERY: ${{ vars.BLIND_ATTEMPT_EVERY || '5' }}
+          CYCLE_SLEEP_SECONDS: ${{ vars.CYCLE_SLEEP_SECONDS || '60' }}
           OCI_COMPARTMENT_OCID: ${{ secrets.OCI_COMPARTMENT_OCID }}
           OCI_IMAGE_ID: ${{ secrets.OCI_IMAGE_ID }}
           OCI_SUBNET_ID: ${{ secrets.OCI_SUBNET_ID }}
